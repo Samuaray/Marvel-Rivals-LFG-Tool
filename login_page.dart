@@ -28,6 +28,8 @@ class _LoginPageState extends State<LoginPage> {
   // GlobalKey used to identify and validate the Form widget
   final _formKey = GlobalKey<FormState>();
 
+  bool _isLoading = false; // Add loading state
+
   // dispose() is called when the widget is removed from the widget tree
   @override
   void dispose() {
@@ -38,70 +40,81 @@ class _LoginPageState extends State<LoginPage> {
     super.dispose();
   }
 
-  // Method to handle the login button press
+  // Updated login handler
   void _handleLogin() async {
-    if (_formKey.currentState!.validate()) {
-      try {
-        // Attempt to sign in with email and password
-        await FirebaseAuth.instance.signInWithEmailAndPassword(
-          email: _emailController.text.trim(),
-          password: _passwordController.text,
+    if (!_formKey.currentState!.validate()) return;
+
+    setState(() => _isLoading = true);
+
+    try {
+      final email = _emailController.text.trim();
+      final password = _passwordController.text;
+
+      // This will automatically persist the auth state
+      final userCredential = await FirebaseAuth.instance.signInWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+
+      if (!mounted) return;
+
+      final user = userCredential.user;
+      if (user != null) {
+        // Use pushAndRemoveUntil to clear the navigation stack
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(
+            builder: (_) => MenuPage(currentUserID: user.uid),
+          ),
+          (route) => false, // Remove all previous routes
         );
-
-        // Verify the user is signed in
-        User? user = FirebaseAuth.instance.currentUser;
-        if (user != null) {
-          print('User signed in: ${user.email}');
-        }
-
-        // Only navigate if login was successful and widget is still mounted
-        if (mounted) {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (context) => MenuPage(currentUserID: user!.uid)),
-          );
-        }
-      } on FirebaseAuthException catch (e) {
-        // Handle specific Firebase errors
-        String errorMessage;
-        switch (e.code) {
-          case 'invalid-credential':
-            errorMessage = 'User does not exist or incorrect password';
-            break;
-          default:
-            errorMessage = 'Login failed: ${e.message}';
-        }
-        
-        // Print the error code for debugging
-        print('Firebase Auth Error Code: ${e.code}');
-        
-        // Show error to user
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(errorMessage),
-              backgroundColor: Colors.red,
-              duration: const Duration(seconds: 3),
-            ),
-          );
-        }
       }
+    } catch (e) {
+      print('Unexpected error: $e'); // Debug print
+      
+      if (!mounted) return;
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('An unexpected error occurred'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false); // Hide loading state
+      }
+    }
+  }
+
+  String _getErrorMessage(String code) {
+    switch (code) {
+      case 'invalid-credential':
+        return 'Invalid email or password';
+      case 'user-disabled':
+        return 'This account has been disabled';
+      case 'user-not-found':
+        return 'No account found with this email';
+      case 'wrong-password':
+        return 'Incorrect password';
+      default:
+        return 'An error occurred during login';
     }
   }
 
   // Method to handle forgot password
   void _handleForgotPassword() async {
-    // Show dialog to enter email
+    final emailController = TextEditingController(text: _emailController.text);
+    
     final String? email = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Reset Password'),
         content: TextFormField(
+          controller: emailController,  // Use the controller instead of initialValue
           decoration: const InputDecoration(
             labelText: 'Email',
             border: OutlineInputBorder(),
           ),
-          initialValue: _emailController.text,
           keyboardType: TextInputType.emailAddress,
         ),
         actions: [
@@ -110,17 +123,21 @@ class _LoginPageState extends State<LoginPage> {
             child: const Text('Cancel'),
           ),
           TextButton(
-            onPressed: () => Navigator.pop(context, _emailController.text),
+            onPressed: () => Navigator.pop(context, emailController.text.trim()),
             child: const Text('Send Reset Link'),
           ),
         ],
       ),
     );
 
-    // Check if email was provided
+    // Add debug prints
+    print('Attempting password reset for email: $email');
+
     if (email != null && email.isNotEmpty && mounted) {
       try {
         await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
+        print('Password reset email sent successfully');
+        
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -130,15 +147,31 @@ class _LoginPageState extends State<LoginPage> {
           );
         }
       } on FirebaseAuthException catch (e) {
+        print('Password reset error: ${e.code} - ${e.message}');
+        
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Error: ${e.message}'),
+              content: Text(_getPasswordResetErrorMessage(e.code)),
               backgroundColor: Colors.red,
             ),
           );
         }
       }
+    }
+  }
+
+  // Add specific error messages for password reset
+  String _getPasswordResetErrorMessage(String code) {
+    switch (code) {
+      case 'auth/invalid-email':
+        return 'Invalid email address format';
+      case 'auth/user-not-found':
+        return 'No account exists with this email';
+      case 'auth/too-many-requests':
+        return 'Too many attempts. Please try again later';
+      default:
+        return 'Error sending password reset email';
     }
   }
 
@@ -152,78 +185,91 @@ class _LoginPageState extends State<LoginPage> {
         title: const Text('Login'),
       ),
       // Body contains the main content
-      body: Padding(
-        // Add 16 pixels of padding on all sides
-        padding: const EdgeInsets.all(16.0),
-        // Form widget to handle form validation
-        child: Form(
-          key: _formKey,  // Assign the form key for validation
-          // Column arranges children vertically
-          child: Column(
-            // Center the form in the available vertical space
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              // Email input field
-              TextFormField(
-                controller: _emailController,  // Assign the controller
-                decoration: const InputDecoration(
-                  labelText: 'Email',  // Label shown above/in the field
-                  border: OutlineInputBorder(),  // Outlined border style
-                ),
-                keyboardType: TextInputType.emailAddress,  // Shows email keyboard on mobile
-                // Validation function
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Please enter your email';
-                  }
-                  if (!value.contains('@')) {
-                    return 'Please enter a valid email';
-                  }
-                  return null;  // null means validation passed
-                },
+      body: Stack(
+        children: [
+          Padding(
+            // Add 16 pixels of padding on all sides
+            padding: const EdgeInsets.all(16.0),
+            // Form widget to handle form validation
+            child: Form(
+              key: _formKey,  // Assign the form key for validation
+              // Column arranges children vertically
+              child: Column(
+                // Center the form in the available vertical space
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  // Email input field
+                  TextFormField(
+                    controller: _emailController,  // Assign the controller
+                    decoration: const InputDecoration(
+                      labelText: 'Email',  // Label shown above/in the field
+                      border: OutlineInputBorder(),  // Outlined border style
+                    ),
+                    keyboardType: TextInputType.emailAddress,  // Shows email keyboard on mobile
+                    // Validation function
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return 'Please enter your email';
+                      }
+                      if (!value.contains('@')) {
+                        return 'Please enter a valid email';
+                      }
+                      return null;  // null means validation passed
+                    },
+                  ),
+                  // Add vertical space between fields
+                  const SizedBox(height: 16),
+                  
+                  // Password input field
+                  TextFormField(
+                    controller: _passwordController,
+                    decoration: const InputDecoration(
+                      labelText: 'Password',
+                      border: OutlineInputBorder(),
+                    ),
+                    obscureText: true,  // Hides the password text
+                    // Password validation
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return 'Please enter your password';
+                      }
+                      if (value.length < 6) {
+                        return 'Password must be at least 6 characters';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 24),
+                  
+                  // Login button
+                  ElevatedButton(
+                    onPressed: _isLoading ? null : _handleLogin,  // Assign the login handler
+                    style: ElevatedButton.styleFrom(
+                      minimumSize: const Size.fromHeight(50),  // Make button full width
+                    ),
+                    child: _isLoading
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                            ),
+                          )
+                        : const Text('Login'),
+                  ),
+                  const SizedBox(height: 16),
+                  
+                  // Forgot password button
+                  TextButton(
+                    onPressed: _handleForgotPassword,  // Assign the forgot password handler
+                    child: const Text('Forgot Password?'),
+                  ),
+                ],
               ),
-              // Add vertical space between fields
-              const SizedBox(height: 16),
-              
-              // Password input field
-              TextFormField(
-                controller: _passwordController,
-                decoration: const InputDecoration(
-                  labelText: 'Password',
-                  border: OutlineInputBorder(),
-                ),
-                obscureText: true,  // Hides the password text
-                // Password validation
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Please enter your password';
-                  }
-                  if (value.length < 6) {
-                    return 'Password must be at least 6 characters';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 24),
-              
-              // Login button
-              ElevatedButton(
-                onPressed: _handleLogin,  // Assign the login handler
-                style: ElevatedButton.styleFrom(
-                  minimumSize: const Size.fromHeight(50),  // Make button full width
-                ),
-                child: const Text('Login'),
-              ),
-              const SizedBox(height: 16),
-              
-              // Forgot password button
-              TextButton(
-                onPressed: _handleForgotPassword,  // Assign the forgot password handler
-                child: const Text('Forgot Password?'),
-              ),
-            ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }
