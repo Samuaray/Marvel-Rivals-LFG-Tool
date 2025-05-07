@@ -75,7 +75,7 @@ class _ProfilePageState extends State<ProfilePage> {
       ),
     );
   }
-
+ 
   Future<void> _kickPlayer(String postId, String playerId, String playerName) async {
     try {
       // Remove player from users_joined collection
@@ -148,6 +148,104 @@ class _ProfilePageState extends State<ProfilePage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Error closing post: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _handleDeleteAccount() async {
+    // First confirmation dialog
+    final firstConfirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Account'),
+        content: const Text(
+          'Are you sure you want to delete your account? This action cannot be undone.',
+          style: TextStyle(color: Colors.red),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (firstConfirm != true || !mounted) return;
+
+    // Second confirmation dialog
+    final secondConfirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Final Confirmation'),
+        content: const Text(
+          'This will permanently delete your account and all associated data. Press "DELETE" to confirm.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Confirm Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (secondConfirm != true || !mounted) return;
+
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+
+      // Delete user data from Firestore first
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .delete();
+
+      // Delete any active posts
+      final posts = await FirebaseFirestore.instance
+          .collection('Posts')
+          .where('AuthorID', isEqualTo: user.uid)
+          .get();
+      
+      for (var post in posts.docs) {
+        await post.reference.delete();
+      }
+
+      // Delete the user account
+      await user.delete();
+
+      if (!mounted) return;
+
+      // Navigate to first page
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const FirstPage()),
+        (route) => false,
+      );
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Account deleted successfully'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error deleting account: $e'),
           backgroundColor: Colors.red,
         ),
       );
@@ -609,36 +707,53 @@ class _ProfilePageState extends State<ProfilePage> {
                                 ),
                                 const SizedBox(height: 30),
                                 Center(
-                                  child: ElevatedButton(
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: Colors.red,
-                                      foregroundColor: Colors.white,
-                                      minimumSize: const Size(120, 40),
-                                    ),
-                                    onPressed: () async {
-                                      try {
-                                        await FirebaseAuth.instance.signOut();
-                                        if (context.mounted) {
-                                          Navigator.of(context).pushAndRemoveUntil(
-                                            MaterialPageRoute(
-                                              builder: (context) => const FirstPage(),
-                                            ),
-                                            (route) => false,
-                                          );
-                                        }
-                                      } catch (e) {
-                                        ScaffoldMessenger.of(context).showSnackBar(
-                                          SnackBar(
-                                            content: Text('Error signing out: $e'),
-                                            backgroundColor: Colors.red,
-                                          ),
-                                        );
-                                      }
-                                    },
-                                    child: const Text(
-                                      'Log Out',
-                                      style: TextStyle(fontSize: 16),
-                                    ),
+                                  child: Column(
+                                    children: [
+                                      ElevatedButton(
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: Colors.red[700],
+                                          foregroundColor: Colors.white,
+                                          minimumSize: const Size(120, 40),
+                                        ),
+                                        onPressed: _handleDeleteAccount,
+                                        child: const Text(
+                                          'Delete Account',
+                                          style: TextStyle(fontSize: 16),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 10),
+                                      ElevatedButton(
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: Colors.red,
+                                          foregroundColor: Colors.white,
+                                          minimumSize: const Size(120, 40),
+                                        ),
+                                        onPressed: () async {
+                                          try {
+                                            await FirebaseAuth.instance.signOut();
+                                            if (context.mounted) {
+                                              Navigator.of(context).pushAndRemoveUntil(
+                                                MaterialPageRoute(
+                                                  builder: (context) => const FirstPage(),
+                                                ),
+                                                (route) => false,
+                                              );
+                                            }
+                                          } catch (e) {
+                                            ScaffoldMessenger.of(context).showSnackBar(
+                                              SnackBar(
+                                                content: Text('Error signing out: $e'),
+                                                backgroundColor: Colors.red,
+                                              ),
+                                            );
+                                          }
+                                        },
+                                        child: const Text(
+                                          'Log Out',
+                                          style: TextStyle(fontSize: 16),
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
                               ],
