@@ -1,12 +1,24 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'profile_page.dart';
 import 'create_lfg.dart';
 import 'lfgfeedscreen.dart';
+import 'first_page.dart';
 
 class MenuPage extends StatelessWidget {
   final String currentUserID;
 
   const MenuPage({super.key, required this.currentUserID});
+
+  Future<void> _handleLogout(BuildContext context) async {
+    await FirebaseAuth.instance.signOut();
+    if (!context.mounted) return;
+
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const FirstPage()),
+      (route) => false,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -41,11 +53,11 @@ class MenuPage extends StatelessWidget {
                 ),
                 onPressed: () {
                   Navigator.push(
-  context,
-  MaterialPageRoute(
-    builder: (context) => ProfilePage(userID: currentUserID),
-  ),
-);
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => ProfilePage(userID: currentUserID),
+                    ),
+                  );
                 },
                 child: const Text(
                   'Profile',
@@ -87,10 +99,26 @@ class MenuPage extends StatelessWidget {
                   Navigator.push(
                     context,
                     MaterialPageRoute(builder: (context) => const CreateLFGPage()),
-                 );
+                  );
                 },
                 child: const Text(
                   'Create LFG Post',
+                  style: TextStyle(fontSize: 18),
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              // Logout Button
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: 50, vertical: 15),
+                  backgroundColor: Colors.white,
+                  foregroundColor: Colors.blue[900],
+                  minimumSize: const Size(200, 50),
+                ),
+                onPressed: () => _handleLogout(context),
+                child: const Text(
+                  'Logout',
                   style: TextStyle(fontSize: 18),
                 ),
               ),
